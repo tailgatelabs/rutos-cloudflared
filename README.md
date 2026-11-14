@@ -129,4 +129,4 @@ See [PLAN.md](PLAN.md) for the design and roadmap. Phase 2 adds a RutOS WebUI pa
 
 ## License
 
-`cloudflared` is © Cloudflare, Apache-2.0. Its license ships in the package at `/usr/share/licenses/cloudflared/LICENSE`. This project isn't affiliated with Cloudflare or Teltonika.
+The scripts and packaging in this repo are under the [MIT License](LICENSE). `cloudflared` itself is © Cloudflare, Apache-2.0. Its license ships in the package at `/usr/share/licenses/cloudflared/LICENSE`. This project isn't affiliated with Cloudflare or Teltonika.

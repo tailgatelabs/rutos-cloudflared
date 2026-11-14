@@ -204,7 +204,7 @@ The RUTM50 before the upgrade, with the tunnel up for six days: `cloudflared` us
 
 `cloudflared` logs a warning at start that the ICMP proxy is disabled because GID 0 is outside `ping_group_range`. That only matters for private network routing with the Cloudflare One Client, which is out of scope, so we leave it.
 | M2 | Public repo `tailgatelabs/rutos-cloudflared`. First manual run published `2026.11.0-r1` with both ipks and `SHA256SUMS`, after fixing qemu packaging on Ubuntu 26.04 runners. The CI-built mipsle ipk was installed on the RUTM50 and works | Watch the first unattended scheduled release |
-| M3 | README written | Repo license, visibility and org |
+| M3 | README written. Public repo under `tailgatelabs`, MIT license | Confirm the `Maintainer:` field |
 
 ### M0: Hardware spike (brief steps 1 to 5)
 
@@ -238,7 +238,7 @@ Settle the risks before writing any packaging.
 ### M3: Docs and first public release
 
 - README: what it is and isn't, install from a release, configure with `uci`, upgrade, uninstall, rotate the token, re-install after a firmware upgrade, Cloudflare setup order (Access policy first, then hostname), and the `httpHostHeader` hint for legacy UIs.
-- Pick the repo license and visibility. See the open questions.
+- Pick the repo license and visibility. Done: public, MIT.
 
 **MVP is done** when someone with a RUTX11 or RUTM50 can go from the README to a working tunnel without help, and the next upstream release ships without anyone touching the repo.
 
@@ -288,6 +288,4 @@ Cloudflare supports `cloudflared` releases for about a year. Following upstream 
 | The 27.9 MB mipsle binary takes half of the RUTM50's 55.9 MB free overlay | Little room for other packages, and an upgrade may need space for old and new binaries at once | Check in M1 whether `opkg upgrade` needs double the space. If so, document `opkg remove` then install. UPX is the last resort |
 | Softfloat QUIC CPU cost on the RUTM50 | High load, slow UI | Measure in M1. Force `http2` per device if needed |
 | VuCI needs the Teltonika SDK to build | Phase 2 gets heavy | P2.0 decides before any UI work |
-| Repo visibility and license | Affects who can install from releases | Open: public or private repo? MIT or Apache-2.0 for our scripts? |
-| GitHub org and repo name | Release URLs in the README | Open |
 | `Maintainer:` field in the control file | Shown by `opkg info` | Set to "Tailgate Labs" as a placeholder. Confirm |
