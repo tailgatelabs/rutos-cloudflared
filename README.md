@@ -102,7 +102,15 @@ After `uci commit cloudflared`, the service restarts with the new settings.
 - **Upgrade:** install the newer `.ipk` the same way. Your settings are kept.
 - **Rotate the token.** Anyone with the token can run your tunnel, so rotate it now and then, and right away if it leaks. In **Networking → Tunnels**, select the tunnel, then **Rotate token**. Copy the new token from **Add a replica**, then run `uci set cloudflared.main.token='<new token>'` and `uci commit cloudflared`. The commit restarts the service. A connector that's already running keeps working on the old token until it restarts. If the token leaked, also force-disconnect the old connections with the [API](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/#rotate-a-token).
 - **Remove:** `opkg remove cloudflared`.
-- **After a firmware upgrade:** check with `opkg list-installed | grep cloudflared`. If the package is gone, install it again. Your config in `/etc/config/cloudflared` is kept by the firmware's keep-settings.
+- **After a firmware upgrade, reinstall the package.** A RutOS firmware upgrade removes all packages you installed yourself, cloudflared included, so the tunnel stays down until you reinstall. If you ticked *Keep settings*, your config and token in `/etc/config/cloudflared` are kept. Install the `.ipk` again as described under [Install](#install). opkg keeps your existing config (it prints *Existing conffile … is different*, which is expected), and the tunnel starts again on its own. Check with `logread -e cloudflared | grep Registered`.
+- **Compare before and after an upgrade:** [`tools/fwcheck.sh`](tools/fwcheck.sh) takes a read-only snapshot of the package, config, service and tunnel. It never prints the token.
+
+  ```sh
+  ssh root@<router> sh -s pre  < tools/fwcheck.sh > fwcheck-pre.txt
+  # upgrade the firmware with "Keep settings" ticked
+  ssh root@<router> sh -s post < tools/fwcheck.sh > fwcheck-post.txt
+  diff fwcheck-pre.txt fwcheck-post.txt
+  ```
 
 ## Building
 

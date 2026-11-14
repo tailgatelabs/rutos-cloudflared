@@ -22,7 +22,7 @@ if [ "$(go env GOTOOLCHAIN)" != local ]; then
 	GOTOOLCHAIN=go$(go list -m -f '{{.GoVersion}}')
 	export GOTOOLCHAIN
 fi
-BUILD_TIME=$(git log -1 --format=%cd --date=format-local:'%Y-%m-%d-%H:%M UTC')
+BUILD_TIME=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%Y-%m-%d-%H:%M UTC')
 LDFLAGS="-s -w -X main.Version=$TAG -X 'main.BuildTime=$BUILD_TIME' \
 -X github.com/cloudflare/cloudflared/cmd/cloudflared/updater.BuiltForPackageManager=opkg"
 

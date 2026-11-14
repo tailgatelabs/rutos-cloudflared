@@ -121,6 +121,7 @@ targets                         # target id, GOARCH/GOARM/GOMIPS, ipk arch (one 
 build.sh                        # build.sh <tag> [target...] -> out/cloudflared-<target>
 mkipk.sh                        # mkipk.sh <tag> <target> [pkgrel] -> out/cloudflared_<ver>_<arch>.ipk
 check.sh                        # check.sh <tag> <ipk...>: layout, modes, arch, runs binary under qemu
+tools/fwcheck.sh                # read-only router snapshot, run before and after a firmware upgrade
 pkg/control/                    # control.in, conffiles, postinst, prerm
 pkg/data/etc/config/cloudflared
 pkg/data/etc/init.d/cloudflared
@@ -183,8 +184,26 @@ Status at 2026-11-14:
 | Milestone | Done | Left |
 | --- | --- | --- |
 | M0 | Device facts. 2026.11.0 cross-built (24.6 / 27.9 MB). Both binaries run under qemu. WebUI loopback and `Host` behaviour checked | Run on hardware, manual tunnel, RSS, router UI and LAN UI behind Access |
-| M1 | Scripts and `pkg/` written. Both ipks built and pass `check.sh` and shellcheck. The mipsle ipk was installed and works on the RUTM50, so opkg accepts the generic `mips32el-nf` arch and an unsigned local ipk | RUTX11 install. On both: reboot, WAN drop, SIM failover, quic vs http2, firmware upgrade |
-| M2 | `release.yml` written | Push to GitHub and do the first run |
+| M1 | Scripts and `pkg/` written. Both ipks built and pass `check.sh` and shellcheck. The mipsle ipk was installed and works on the RUTM50, so opkg accepts the generic `mips32el-nf` arch and an unsigned local ipk. Firmware upgrade tested on the RUTM50 (see below) | RUTX11 install. On both: reboot, WAN drop, SIM failover, quic vs http2 |
+
+### Firmware upgrade result (RUTM50, 7.26.1 → 7.26.2, keep settings on)
+
+Taken with `tools/fwcheck.sh` before and after:
+
+| Item | After the upgrade |
+| --- | --- |
+| `/etc/config/cloudflared` | Kept, unchanged (mode 0600, `enabled=1`, token intact). It's on the `sysupgrade -l` list through our `keep.d` entry |
+| Binary, init script, `keep.d` entry, license | Removed. The whole `/usr/local` overlay is reset |
+| opkg record | Removed. `opkg list-installed` no longer shows the package |
+| Boot links in `/etc/rc.d` | Removed |
+| `/etc/backup_packages` | Empty before and after, so RutOS doesn't reinstall third-party packages itself |
+
+Reinstalling the CI-built `2026.11.0-r1` ipk afterwards with `opkg install` brought the tunnel back on its own: 4 connections over QUIC, the old token used, and the boot links restored. opkg kept the existing config and wrote the package's template to `/etc/config/cloudflared-opkg`. That file would then be carried through every later upgrade, so from `-r2` `postinst` deletes it. It also showed that `build.sh` printed the build time in the build machine's local time zone, so the Mac and CI builds disagreed. From `-r2` it's forced to UTC.
+
+The RUTM50 before the upgrade, with the tunnel up for six days: `cloudflared` used 35.6 MB RSS, and 42.7 MB was still available (MemAvailable). After the upgrade without `cloudflared`, 87.8 MB was available, but that's just after boot, so the two figures aren't directly comparable. QUIC was the protocol chosen on that WAN.
+
+`cloudflared` logs a warning at start that the ICMP proxy is disabled because GID 0 is outside `ping_group_range`. That only matters for private network routing with the Cloudflare One Client, which is out of scope, so we leave it.
+| M2 | Public repo `tailgatelabs/rutos-cloudflared`. First manual run published `2026.11.0-r1` with both ipks and `SHA256SUMS`, after fixing qemu packaging on Ubuntu 26.04 runners. The CI-built mipsle ipk was installed on the RUTM50 and works | Watch the first unattended scheduled release |
 | M3 | README written | Repo license, visibility and org |
 
 ### M0: Hardware spike (brief steps 1 to 5)
@@ -253,7 +272,7 @@ What should happen, and what it costs:
 | Upstream release | Scheduled workflow builds and publishes it | None |
 | Upstream changes Go version or build flags | Picked up from `go.mod` automatically. If the build breaks, the workflow fails and GitHub emails | Fix `build.sh`, rerun |
 | Packaging fix | Commit, then dispatch with `pkgrel` bumped | Minutes |
-| RutOS major firmware release | Re-run the M1 install, reboot and upgrade checks on one device | About 30 minutes per major release |
+| RutOS major firmware release | Run `tools/fwcheck.sh` before and after upgrading one device, diff the two, and reinstall if needed | About 30 minutes per major release |
 | New device family | Add a line to `targets` if its arch is not already covered | Minutes, plus one hardware check |
 | GitHub Actions versions | Optional Dependabot for `github-actions` only, monthly | Merge a PR occasionally |
 
@@ -264,7 +283,7 @@ Cloudflare supports `cloudflared` releases for about a year. Following upstream 
 | Item | Impact | Plan |
 | --- | --- | --- |
 | GitHub disables scheduled workflows after 60 days without repo activity | Releases silently stop | Check in M2 whether workflow-created releases count as activity. If not, add a monthly keepalive or accept a manual dispatch now and then |
-| Firmware upgrade wipes the binary and init script | Tunnel down after upgrade until reinstalled | The config is kept via `keep.d`. Measure in M1 whether `/usr/local` survives. If not, document the reinstall. Keeping a 25 MB binary through the sysupgrade backup is probably not worth it |
+| Firmware upgrade removes the package (confirmed 7.26.1 → 7.26.2 on the RUTM50) | Tunnel down after every firmware upgrade until reinstalled | Documented reinstall for now. The config with the token survives, so a reinstall brings the tunnel straight back. Listing the binary and init script in `keep.d` would leave files opkg no longer knows about, and the boot links would still be lost, so we don't. Worth checking later: whether `opkg install <release URL>` works straight from the router, which would make the reinstall one command |
 | Low RAM: about 54 MiB available on the RUTX11, 69 MiB on the RUTM50, no swap | OOM kills of `cloudflared` or RutOS services | Measure RSS in M0. Cap the Go heap with `GOMEMLIMIT` from procd if needed |
 | The 27.9 MB mipsle binary takes half of the RUTM50's 55.9 MB free overlay | Little room for other packages, and an upgrade may need space for old and new binaries at once | Check in M1 whether `opkg upgrade` needs double the space. If so, document `opkg remove` then install. UPX is the last resort |
 | Softfloat QUIC CPU cost on the RUTM50 | High load, slow UI | Measure in M1. Force `http2` per device if needed |

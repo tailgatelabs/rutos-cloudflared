@@ -1,6 +1,9 @@
 #!/bin/sh
 # Enable the service at boot. It only starts once enabled=1 and a token are set.
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
+# On reinstall opkg keeps the existing config and writes our template next to it.
+# The template holds no settings the init script doesn't already default, so drop it.
+rm -f /etc/config/cloudflared-opkg
 /etc/init.d/cloudflared enable
 /etc/init.d/cloudflared start
 exit 0
