@@ -1,0 +1,9 @@
+config cloudflared 'main'
+	# 1 to run the tunnel
+	option enabled '0'
+	# Tunnel token from the Cloudflare dashboard (remotely managed tunnel)
+	option token ''
+	# auto, quic or http2
+	option protocol 'auto'
+	# debug, info, warn, error or fatal
+	option loglevel 'info'

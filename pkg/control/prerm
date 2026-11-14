@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stop the service; on removal (not upgrade) also drop the boot link.
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+/etc/init.d/cloudflared stop
+[ "${1:-remove}" = upgrade ] || /etc/init.d/cloudflared disable
+exit 0

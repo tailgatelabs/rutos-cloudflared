@@ -1,0 +1,5 @@
+# One build target per line: id GOARCH GO_VARIANT IPK_ARCH
+# GO_VARIANT is the extra Go env for the arch (GOARM / GOMIPS).
+# IPK_ARCH is the lowest arch the binary needs that RutOS opkg lists (see PLAN.md).
+armv7   arm     GOARM=7          armv7ahf-vfp
+mipsle  mipsle  GOMIPS=softfloat mips32el-nf

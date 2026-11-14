@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enable the service at boot. It only starts once enabled=1 and a token are set.
+[ -n "${IPKG_INSTROOT:-}" ] && exit 0
+/etc/init.d/cloudflared enable
+/etc/init.d/cloudflared start
+exit 0

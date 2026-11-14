@@ -54,10 +54,23 @@ BusyBox `free` ignores `-m` and prints KiB, so the RAM figures above are convert
 What these numbers mean:
 
 - **CA bundle:** Go reads `/etc/ssl/certs/ca-certificates.crt` by default, so the package needs no CA dependency.
-- **Flash:** a stripped `cloudflared` is likely 30 to 40 MB. That fits on both, but on the RUTM50 it uses more than half of the free overlay. opkg also needs room in `/tmp` (RAM) for the downloaded ipk while it installs, so install from a file copied to `/tmp` and delete it afterwards.
+- **Flash:** the 2026.11.0 build is 24.6 MB (armv7) and 27.9 MB (mipsle) stripped, and the ipks are about 9 MB. That fits on both, but on the RUTM50 it uses half of the free overlay. opkg also needs room in `/tmp` (RAM) for the ipk while it installs, so copy it to `/tmp` and delete it afterwards.
 - **RAM is the tighter limit.** There's no swap. The RUTX11 has about 54 MiB available with RutOS running. If `cloudflared` uses 30 to 50 MiB RSS, the router runs with very little headroom, and the kernel OOM killer could take out `cloudflared` or a RutOS service. M0 has to measure this.
 
-All device facts are now recorded. M0 only has to measure the binary size and RSS.
+All device facts are now recorded. M0 only has to measure RSS.
+
+### How RutOS 7.26 installs packages
+
+Found on the RUTX11 and confirmed against Teltonika's own `zerotier` ipk:
+
+- RutOS 7.26 is built with Yocto (Poky), not the OpenWrt build system. opkg is 0.6.3 with libsolv. That's why the arch names are OpenEmbedded-style.
+- The root filesystem is read-only squashfs. opkg's default dest is `/usr/local` (an overlay), and `/usr/local/etc` is a symlink to `/etc`. So `./usr/bin/cloudflared` in the ipk lands at `/usr/local/usr/bin/cloudflared` (on `PATH`), and `./etc/...` lands in `/etc` as usual.
+- Teltonika's init scripts handle both locations with `PROG=/usr/bin/x; [ -x "$PROG" ] || PROG="/usr/local$PROG"`. Ours does the same, so the same package also works on plain OpenWrt.
+- Packages list config files to keep across firmware upgrades in `./lib/upgrade/keep.d/<pkg>`. Ours lists `/etc/config/cloudflared`.
+- `option check_signature` is set for the feeds, but a local unsigned ipk installs without extra flags (confirmed on the RUTM50).
+- Teltonika's ipk uses a GNU `ar` outer archive with `control.tar.gz` and `data.tar.zst`. Ours is `ar` with gzip for both, which opkg's libarchive also reads.
+
+The router WebUI listens on `0.0.0.0:443` and `:80` and serves `https://127.0.0.1/` with a foreign `Host` header (200 on both routers). So the tunnel service for the router UI is `https://127.0.0.1:443` with TLS verification off.
 
 ## Targets
 
@@ -83,7 +96,12 @@ M1 has to confirm that opkg accepts these generic strings. If it doesn't, fall b
 ### Phase 2: VuCI UI
 
 - A RutOS WebUI page to enable or disable the tunnel, set the token, protocol and log level, and see service and connector status
-- Shipped as a separate, arch-independent package (`vuci-app-cloudflared`, `Architecture: all`) that depends on `cloudflared`. UI changes then don't need a rebuild per arch, and upstream binary releases don't touch the UI.
+- Shipped as separate, arch-independent packages (`Architecture: all`) that depend on `cloudflared`. UI changes then don't need a rebuild per arch, and upstream binary releases don't touch the UI.
+
+Teltonika's own ZeroTier UI shows the shape to copy. It's two `all` packages:
+
+- `vuci-app-zerotier-api`: Lua handlers in `/usr/lib/lua/api/services/`, an rpcd ACL in `/usr/share/rpcd/acl.d/`, and a route in `/usr/share/vuci/path.d/`. This is plain text and easy to ship.
+- `vuci-app-zerotier-ui`: one compiled, gzipped JS bundle in `/www/assets/` and a menu entry in `/usr/share/vuci/menu.d/`. The bundle is built by Teltonika's frontend toolchain, and that is the main maintenance risk for phase 2.
 
 ### Not planned
 
@@ -101,10 +119,12 @@ M1 has to confirm that opkg accepts these generic strings. If it doesn't, fall b
 ```
 targets                         # target id, GOARCH/GOARM/GOMIPS, ipk arch (one line each)
 build.sh                        # build.sh <tag> [target...] -> out/cloudflared-<target>
-mkipk.sh                        # mkipk.sh <tag> <target> -> out/cloudflared_<ver>_<arch>.ipk
+mkipk.sh                        # mkipk.sh <tag> <target> [pkgrel] -> out/cloudflared_<ver>_<arch>.ipk
+check.sh                        # check.sh <tag> <ipk...>: layout, modes, arch, runs binary under qemu
 pkg/control/                    # control.in, conffiles, postinst, prerm
 pkg/data/etc/config/cloudflared
 pkg/data/etc/init.d/cloudflared
+pkg/data/lib/upgrade/keep.d/cloudflared
 .github/workflows/release.yml   # scheduled + manual: check upstream, build, test, release
 README.md
 PLAN.md
@@ -116,13 +136,15 @@ Phase 2 adds `vuci/` with its own small packaging step. It reuses `mkipk.sh` if 
 
 1. The workflow runs daily and on manual dispatch. It reads the latest upstream release tag.
 2. If a release with that tag already exists in this repo, it stops. Otherwise it continues.
-3. It checks out upstream at the tag, sets up Go from upstream's `go.mod` (`actions/setup-go` with `go-version-file`), and runs `build.sh` for every line in `targets`.
+3. `build.sh` clones upstream at the tag and sets `GOTOOLCHAIN` to the Go version in upstream's `go.mod`, as upstream's Makefile does. It builds with upstream's ldflags, plus `-s -w`, `-trimpath` and `BuiltForPackageManager=opkg`, for every line in `targets`.
 4. `mkipk.sh` assembles one ipk per target.
 5. Smoke tests, all cheap and on the runner:
    - Run `cloudflared --version` for each binary under `qemu-user` and check it prints the tag.
    - List each ipk's contents and check paths, modes and the `Architecture` field.
    - Run `shellcheck` on the scripts and the init script.
-6. It publishes a GitHub release named after the upstream tag, with both ipks and a `SHA256SUMS` file.
+6. It publishes a GitHub release named `<tag>-r<n>`, with both ipks and a `SHA256SUMS` file.
+
+Packages are reproducible: mtimes come from the upstream commit, owners are `root`, and the outer `ar` archive is written by the script itself. Rebuilding on the same host gives byte-identical ipks. GNU tar (CI) and bsdtar (macOS) produce different bytes, so CI output is the reference.
 
 Package version is `<upstream tag>-r<n>`, for example `2026.11.0-r1`. `n` goes up only when packaging changes without a new upstream tag. A manual dispatch with a `pkgrel` input covers that case.
 
@@ -133,9 +155,12 @@ Package version is `<upstream tag>-r<n>`, for example `2026.11.0-r1`. `n` goes u
 | `/usr/bin/cloudflared` | 0755 | Stripped static binary |
 | `/etc/init.d/cloudflared` | 0755 | procd service, starts disabled |
 | `/etc/config/cloudflared` | 0600 | UCI config, listed in `conffiles` so upgrades keep it |
+| `/lib/upgrade/keep.d/cloudflared` | 0644 | Keeps the UCI config across firmware upgrades |
 | `/usr/share/licenses/cloudflared/LICENSE` | 0644 | Upstream Apache-2.0 license |
 
-`postinst` enables the init script but doesn't start the service until `enabled=1` and a token are set. `prerm` stops the service.
+Paths are relative to the opkg dest. On RutOS, `/usr/...` lands under `/usr/local/usr/...`.
+
+`postinst` enables the init script and calls `start`, which does nothing until `enabled=1` and a token are set. `prerm` stops the service, and on removal (not upgrade) it also disables it.
 
 ### UCI contract
 
@@ -152,6 +177,15 @@ The init script is the one in the brief: it passes the token through the `TUNNEL
 ## MVP milestones
 
 Each milestone has an exit check. Steps refer to the spike plan in the brief.
+
+Status at 2026-11-14:
+
+| Milestone | Done | Left |
+| --- | --- | --- |
+| M0 | Device facts. 2026.11.0 cross-built (24.6 / 27.9 MB). Both binaries run under qemu. WebUI loopback and `Host` behaviour checked | Run on hardware, manual tunnel, RSS, router UI and LAN UI behind Access |
+| M1 | Scripts and `pkg/` written. Both ipks built and pass `check.sh` and shellcheck. The mipsle ipk was installed and works on the RUTM50, so opkg accepts the generic `mips32el-nf` arch and an unsigned local ipk | RUTX11 install. On both: reboot, WAN drop, SIM failover, quic vs http2, firmware upgrade |
+| M2 | `release.yml` written | Push to GitHub and do the first run |
+| M3 | README written | Repo license, visibility and org |
 
 ### M0: Hardware spike (brief steps 1 to 5)
 
@@ -195,8 +229,8 @@ Settle the risks before writing any packaging.
 
 The answers here decide whether the UI can stay lightweight, so this comes first.
 
-- How RutOS 7.26 WebUI loads apps. Inspect an installed `vuci-app-*` package on a device (`opkg files`, `/www`, API definitions) to see what a page consists of once installed.
-- Whether a page can be shipped as prebuilt files in an ipk, or whether it needs the Teltonika SDK's frontend build. If it needs the SDK, weigh that cost against a minimal alternative before committing, for example a plain status page.
+- How RutOS 7.26 WebUI loads apps. Partly answered: see the ZeroTier layout under Scope. Still open is how the `menu.d` and `path.d` JSON and the Lua API are structured.
+- Whether a page can be shipped as prebuilt files in an ipk, or whether it needs the Teltonika SDK's frontend build. The ZeroTier UI is a compiled bundle, so assume the SDK is needed until shown otherwise. If it needs the SDK, weigh that cost against a minimal alternative before committing, for example a plain status page.
 - How the UI reads and writes UCI and reads service state through the RutOS API, and whether unsigned packages are allowed to register menu entries and API endpoints.
 - How the page behaves across a firmware upgrade.
 
@@ -230,11 +264,11 @@ Cloudflare supports `cloudflared` releases for about a year. Following upstream 
 | Item | Impact | Plan |
 | --- | --- | --- |
 | GitHub disables scheduled workflows after 60 days without repo activity | Releases silently stop | Check in M2 whether workflow-created releases count as activity. If not, add a monthly keepalive or accept a manual dispatch now and then |
-| Firmware upgrade wipes the binary and init script | Tunnel down after upgrade until reinstalled | Measure in M1. If confirmed, document the reinstall, and test whether listing the files in `/etc/sysupgrade.conf` from `postinst` keeps them |
+| Firmware upgrade wipes the binary and init script | Tunnel down after upgrade until reinstalled | The config is kept via `keep.d`. Measure in M1 whether `/usr/local` survives. If not, document the reinstall. Keeping a 25 MB binary through the sysupgrade backup is probably not worth it |
 | Low RAM: about 54 MiB available on the RUTX11, 69 MiB on the RUTM50, no swap | OOM kills of `cloudflared` or RutOS services | Measure RSS in M0. Cap the Go heap with `GOMEMLIMIT` from procd if needed |
-| Overlay fits a ~35 MB binary on both, but it takes more than half of the RUTM50's 55.9 MB free | Little room for other packages, and an upgrade may need space for old and new binaries at once | Measure the real size in M0. Check in M1 whether `opkg upgrade` needs double the space. UPX is the last resort |
+| The 27.9 MB mipsle binary takes half of the RUTM50's 55.9 MB free overlay | Little room for other packages, and an upgrade may need space for old and new binaries at once | Check in M1 whether `opkg upgrade` needs double the space. If so, document `opkg remove` then install. UPX is the last resort |
 | Softfloat QUIC CPU cost on the RUTM50 | High load, slow UI | Measure in M1. Force `http2` per device if needed |
 | VuCI needs the Teltonika SDK to build | Phase 2 gets heavy | P2.0 decides before any UI work |
 | Repo visibility and license | Affects who can install from releases | Open: public or private repo? MIT or Apache-2.0 for our scripts? |
 | GitHub org and repo name | Release URLs in the README | Open |
-| `test-teltonika-details.txt` holds internal hostnames and an IP | Leaks into git history if committed | Facts are copied into this plan. Leave the file out of the first commit or gitignore it |
+| `Maintainer:` field in the control file | Shown by `opkg info` | Set to "Tailgate Labs" as a placeholder. Confirm |

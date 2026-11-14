@@ -1,0 +1,80 @@
+name: release
+
+# Daily: if upstream cloudflared has a release we have not packaged, build, test and publish it.
+# Manual: rebuild a given tag, or bump pkgrel after a packaging-only change.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream cloudflared tag (empty = latest release)
+        required: false
+      pkgrel:
+        description: Package release number (bump for packaging-only changes)
+        required: false
+        default: "1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Pick upstream tag
+        id: pick
+        run: |
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag=$(gh release view --repo cloudflare/cloudflared --json tagName --jq .tagName)
+          rel="$tag-r${{ inputs.pkgrel || '1' }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "rel=$rel" >> "$GITHUB_OUTPUT"
+          if gh release view "$rel" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "$rel already released, nothing to do"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pick.outputs.skip != 'true'
+
+      - uses: actions/setup-go@v5
+        if: steps.pick.outputs.skip != 'true'
+        with:
+          # build.sh switches to the exact version in upstream's go.mod via GOTOOLCHAIN.
+          go-version: stable
+          cache: false
+
+      - name: Build
+        if: steps.pick.outputs.skip != 'true'
+        run: ./build.sh "${{ steps.pick.outputs.tag }}"
+
+      - name: Package
+        if: steps.pick.outputs.skip != 'true'
+        run: |
+          for id in $(grep -v '^#' targets | awk 'NF { print $1 }'); do
+            ./mkipk.sh "${{ steps.pick.outputs.tag }}" "$id" "${{ inputs.pkgrel || '1' }}"
+          done
+          (cd out && sha256sum ./*.ipk | sed 's| \./| |' > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Test
+        if: steps.pick.outputs.skip != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          shellcheck build.sh mkipk.sh check.sh pkg/control/postinst pkg/control/prerm pkg/data/etc/init.d/cloudflared
+          ./check.sh "${{ steps.pick.outputs.tag }}" out/*.ipk
+
+      - name: Publish
+        if: steps.pick.outputs.skip != 'true'
+        run: |
+          tag="${{ steps.pick.outputs.tag }}"
+          gh release create "${{ steps.pick.outputs.rel }}" out/*.ipk out/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "cloudflared ${{ steps.pick.outputs.rel }}" \
+            --notes "Unmodified upstream [cloudflared $tag](https://github.com/cloudflare/cloudflared/releases/tag/$tag), packaged for RutOS. Install instructions are in the README."
