@@ -198,7 +198,7 @@ Taken with `tools/fwcheck.sh` before and after:
 | Boot links in `/etc/rc.d` | Removed |
 | `/etc/backup_packages` | Empty before and after, so RutOS doesn't reinstall third-party packages itself |
 
-Reinstalling the CI-built `2026.11.0-r1` ipk afterwards with `opkg install` brought the tunnel back on its own: 4 connections over QUIC, the old token used, and the boot links restored. opkg kept the existing config and wrote the package's template to `/etc/config/cloudflared-opkg`. That file would then be carried through every later upgrade, so from `-r2` `postinst` deletes it. It also showed that `build.sh` printed the build time in the build machine's local time zone, so the Mac and CI builds disagreed. From `-r2` it's forced to UTC.
+Reinstalling the CI-built `2026.11.0-r1` ipk afterwards with `opkg install` brought the tunnel back on its own: 4 connections over QUIC, the old token used, and the boot links restored. opkg kept the existing config and wrote the package's template to `/etc/config/cloudflared-opkg`. That file would then be carried through every later upgrade, so from `-r2` `postinst` deletes it. It also showed that `build.sh` printed the build time in the build machine's local time zone, so the Mac and CI builds disagreed. From `-r2` it's forced to UTC. Upgrading the RUTM50 from `-r1` to the CI-built `-r2` with `opkg install` worked: the tunnel stayed configured and `/etc/config/cloudflared-opkg` was removed.
 
 The RUTM50 before the upgrade, with the tunnel up for six days: `cloudflared` used 35.6 MB RSS, and 42.7 MB was still available (MemAvailable). After the upgrade without `cloudflared`, 87.8 MB was available, but that's just after boot, so the two figures aren't directly comparable. QUIC was the protocol chosen on that WAN.
 
