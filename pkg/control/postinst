@@ -1,9 +1,58 @@
 #!/bin/sh
 # Enable the service at boot. It only starts once enabled=1 and a token are set.
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
+
 # On reinstall opkg keeps the existing config and writes our template next to it.
 # The template holds no settings the init script doesn't already default, so drop it.
 rm -f /etc/config/cloudflared-opkg
+
+# --- Firmware upgrade kludge -------------------------------------------------
+# A RutOS firmware upgrade wipes every package but keeps the files listed in
+# keep.d. We keep /etc/cloudflared/ (a copy of this ipk plus restore.sh) and a
+# line in /etc/rc.local, so the first boot after an upgrade reinstalls us.
+# This is a workaround, not a supported RutOS mechanism. See
+# docs/upgrade-persistence.md in the project repo.
+KEEP=/etc/cloudflared
+mkdir -p "$KEEP"
+# Write to a temp file and rename: restore.sh may be the process running this install.
+cat > "$KEEP/restore.sh.new" <<'EOF'
+#!/bin/sh
+# Written by the cloudflared package. Reinstalls cloudflared after a firmware
+# upgrade removed it. Workaround, see docs/upgrade-persistence.md.
+IPK=/etc/cloudflared/cloudflared.ipk
+[ -f "$IPK" ] || exit 0
+if [ -x /usr/local/usr/bin/cloudflared ] || [ -x /usr/bin/cloudflared ]; then
+	exit 0
+fi
+logger -t cloudflared-restore "cloudflared is missing, reinstalling from $IPK"
+# Package Restore may still be using opkg after an upgrade, so retry for ~10 min.
+i=0
+while [ $i -lt 60 ]; do
+	if opkg install "$IPK" >/tmp/cloudflared-restore.log 2>&1; then
+		logger -t cloudflared-restore "reinstalled"
+		exit 0
+	fi
+	i=$((i + 1))
+	sleep 10
+done
+logger -t cloudflared-restore "reinstall failed, see /tmp/cloudflared-restore.log"
+exit 1
+EOF
+chmod 0755 "$KEEP/restore.sh.new"
+mv -f "$KEEP/restore.sh.new" "$KEEP/restore.sh"
+
+# Hook it into /etc/rc.local once, before its final "exit 0". Rewrite in place
+# with cat so the file keeps its owner and mode.
+HOOK='[ -x /etc/cloudflared/restore.sh ] && /etc/cloudflared/restore.sh & # cloudflared-restore'
+if [ -f /etc/rc.local ] && ! grep -q '# cloudflared-restore$' /etc/rc.local; then
+	awk -v hook="$HOOK" '!done && /^exit 0/ { print hook; done = 1 } { print } END { if (!done) print hook }' \
+		/etc/rc.local > /tmp/rc.local.cloudflared && cat /tmp/rc.local.cloudflared > /etc/rc.local
+	rm -f /tmp/rc.local.cloudflared
+fi
+[ -f "$KEEP/cloudflared.ipk" ] ||
+	echo "cloudflared: no $KEEP/cloudflared.ipk, so it will not come back by itself after a firmware upgrade"
+# -----------------------------------------------------------------------------
+
 /etc/init.d/cloudflared enable
 /etc/init.d/cloudflared start
 exit 0

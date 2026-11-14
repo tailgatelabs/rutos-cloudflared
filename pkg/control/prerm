@@ -1,6 +1,15 @@
 #!/bin/sh
-# Stop the service; on removal (not upgrade) also drop the boot link.
+# Stop the service. On removal (not upgrade) also drop the boot link and the
+# firmware upgrade kludge (rc.local hook and /etc/cloudflared/).
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 /etc/init.d/cloudflared stop
-[ "${1:-remove}" = upgrade ] || /etc/init.d/cloudflared disable
+[ "${1:-remove}" = upgrade ] && exit 0
+
+/etc/init.d/cloudflared disable
+if [ -f /etc/rc.local ] && grep -q '# cloudflared-restore$' /etc/rc.local; then
+	grep -v '# cloudflared-restore$' /etc/rc.local > /tmp/rc.local.cloudflared &&
+		cat /tmp/rc.local.cloudflared > /etc/rc.local
+	rm -f /tmp/rc.local.cloudflared
+fi
+rm -rf /etc/cloudflared
 exit 0

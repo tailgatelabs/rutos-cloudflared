@@ -71,6 +71,12 @@ echo "errors: $(grep -c -E ' ERR ' /tmp/fwcheck.log)"
 grep -E ' (ERR|WRN) ' /tmp/fwcheck.log | tail -5 | cut -c1-200
 rm -f /tmp/fwcheck.log
 
+section "upgrade reinstall hook"
+for f in /etc/cloudflared/cloudflared.ipk /etc/cloudflared/restore.sh; do have "$f"; done
+[ -e /etc/cloudflared/cloudflared.ipk ] && sha256sum /etc/cloudflared/cloudflared.ipk
+grep -q '# cloudflared-restore$' /etc/rc.local 2>/dev/null && echo "rc.local hook: present" || echo "rc.local hook: MISSING"
+logread -e cloudflared-restore 2>/dev/null | tail -3 | cut -c1-200
+
 section "upgrade keep list"
 sysupgrade -l 2>/dev/null | grep -i cloudflared || echo "nothing cloudflared in sysupgrade -l"
 for f in /etc/backup_packages/*; do [ -e "$f" ] && echo "backup_packages: ${f##*/}"; done
