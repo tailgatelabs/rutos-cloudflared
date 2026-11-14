@@ -38,18 +38,23 @@ for IPK in "$@"; do
 			"$T/data.list" | grep -q . || fail "missing or wrong mode/owner: $want"
 	done
 
-	qemu=
 	case $id in
-	armv7) qemu="qemu-arm-static" ;;
-	mipsle) qemu="qemu-mipsel-static" ;;
+	armv7) q="qemu-arm" ;;
+	mipsle) q="qemu-mipsel" ;;
+	*) q=none ;;
 	esac
+	# Older distros name the static build qemu-<arch>-static, newer ones qemu-<arch>.
+	qemu="$q-static"
+	command -v "$qemu" >/dev/null 2>&1 || qemu=$q
 	if command -v "$qemu" >/dev/null 2>&1; then
 		tar -xzf "$T/data.tar.gz" -C "$T/d" ./usr/bin/cloudflared
 		"$qemu" "$T/d/usr/bin/cloudflared" --version | grep -q "version $TAG " ||
 			fail "binary does not report version $TAG"
 		echo "ok   $IPK (ran under $qemu)"
+	elif [ -n "${REQUIRE_QEMU:-}" ]; then
+		fail "REQUIRE_QEMU is set but neither $q-static nor $q is installed"
 	else
-		echo "ok   $IPK (layout only, $qemu not installed)"
+		echo "ok   $IPK (layout only, $q not installed)"
 	fi
 	rm -rf "$T"
 done

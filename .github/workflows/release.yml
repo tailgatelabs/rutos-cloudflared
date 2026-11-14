@@ -65,8 +65,12 @@ jobs:
 
       - name: Test
         if: steps.pick.outputs.skip != 'true'
+        env:
+          REQUIRE_QEMU: "1"
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+          sudo apt-get update -qq
+          # Static qemu moved from qemu-user-static into qemu-user in newer Ubuntu.
+          sudo apt-get install -y -qq qemu-user-static || sudo apt-get install -y -qq qemu-user
           shellcheck build.sh mkipk.sh check.sh pkg/control/postinst pkg/control/prerm pkg/data/etc/init.d/cloudflared
           ./check.sh "${{ steps.pick.outputs.tag }}" out/*.ipk
 
