@@ -120,14 +120,13 @@ logread -e cloudflared | grep Registered
 
 If the tunnel isn't back, reinstall by hand as under [Install](#install). opkg keeps your existing config and prints *Existing conffile … is different*, which is expected.
 
-[`tools/fwcheck.sh`](tools/fwcheck.sh) takes a read-only snapshot of the package, config, service and tunnel, so you can compare before and after an upgrade. It never prints the token.
+Before you upgrade, check that the firmware will keep what the reinstall needs:
 
 ```sh
-ssh root@<router> sh -s pre  < tools/fwcheck.sh > fwcheck-pre.txt
-# upgrade the firmware with "Keep settings" ticked
-ssh root@<router> sh -s post < tools/fwcheck.sh > fwcheck-post.txt
-diff fwcheck-pre.txt fwcheck-post.txt
+sysupgrade -l | grep cloudflared
 ```
+
+It should list `/etc/config/cloudflared`, `/etc/cloudflared/cloudflared.ipk` and `/etc/cloudflared/restore.sh`.
 
 ## Building
 

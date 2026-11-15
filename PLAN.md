@@ -121,7 +121,6 @@ targets                         # target id, GOARCH/GOARM/GOMIPS, ipk arch (one 
 build.sh                        # build.sh <tag> [target...] -> out/cloudflared-<target>
 mkipk.sh                        # mkipk.sh <tag> <target> [pkgrel] -> out/cloudflared_<ver>_<arch>.ipk
 check.sh                        # check.sh <tag> <ipk...>: layout, modes, arch, runs binary under qemu
-tools/fwcheck.sh                # read-only router snapshot, run before and after a firmware upgrade
 docs/upgrade-persistence.md     # how the package survives firmware upgrades (a kludge)
 pkg/control/                    # control.in, conffiles, postinst, prerm
 pkg/data/etc/config/cloudflared
@@ -193,7 +192,7 @@ Status at 2026-11-14:
 
 ### Firmware upgrade result (RUTM50, 7.26.1 → 7.26.2, keep settings on)
 
-Taken with `tools/fwcheck.sh` before and after:
+From read-only snapshots of the router taken before and after:
 
 | Item | After the upgrade |
 | --- | --- |
@@ -275,7 +274,7 @@ What should happen, and what it costs:
 | Upstream release | Scheduled workflow builds and publishes it | None |
 | Upstream changes Go version or build flags | Picked up from `go.mod` automatically. If the build breaks, the workflow fails and GitHub emails | Fix `build.sh`, rerun |
 | Packaging fix | Commit, then dispatch with `pkgrel` bumped | Minutes |
-| RutOS major firmware release | Run `tools/fwcheck.sh` before and after upgrading one device, diff the two, and check that the reinstall hook still works | About 30 minutes per major release |
+| RutOS major firmware release | Upgrade one device. Before, check `sysupgrade -l` lists the kept files. After, check the package reinstalled itself and the tunnel is up | About 30 minutes per major release |
 | New device family | Add a line to `targets` if its arch is not already covered | Minutes, plus one hardware check |
 | GitHub Actions versions | Optional Dependabot for `github-actions` only, monthly | Merge a PR occasionally |
 
